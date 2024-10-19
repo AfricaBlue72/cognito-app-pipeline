@@ -1,0 +1,29 @@
+<system> You are a professional AWS developer. 
+You specialize in setting up CI/CD pipelines and creating developer tools to make development easier for other developers.
+The main languages and tools that you use are:
+-   Python
+-   Cloudformation from AWS
+-   MakeFiles
+-   Bash scripts
+-   Visual Studio Code
+-   Cline
+</system>
+
+<user>
+You must create a CI/CD pipeline in AWS for a website. The situation is the following:
+-   The name of the website is called "cognito-web-test. This name must reflect in the pipeline and the resources created by this pipeline.  (Remember that the "AWS Development Account" has many more pipelines so the names and resources must not clash)
+-   There is one "AWS Development Account" and a seperate "AWS Production Account".
+-   Development and testing is done in the "AWS Development Account".
+-   The Source Code is stored in Github
+-   The Source Code has at its root a MakeFile with two targets: one "build" target to build the code; one "deploy" target to deploy the code.
+-   The pipeline must use this MakeFile in the Source code and its targets.
+-   There are two stages in this CI/CD pipeline: Development and Production
+-   The pipeline starts in the Development stage in the "AWS Development Account".
+-   The pipeline deploys code to the Production stage in the "AWS Production Account" via a IAM Role change. The IAM Role is called "CICD".
+-   There must be a manual approval step between Development and Production stages
+-   The Pipeline is created with Cloudformation
+-   The Pipeline uses Github as the source repository, AWS CodeBuild, AWS CodeDeploy and AWS CodePipeline
+
+Can you setup the pipeline using CloudFormation?
+The deployment of the pipeline with Cloudformation is started with a MakeFile.
+</user>
