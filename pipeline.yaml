@@ -18,6 +18,9 @@ Parameters:
   ProductionAccountId:
     Type: String
     Description: AWS Account ID for Production
+  ProductionBucketName:
+    Type: String
+    Description: Name of the S3 bucket in the production account for deployment
 
 Resources:
   CodeBuildRole:
@@ -194,7 +197,7 @@ Resources:
                 Provider: S3
                 Version: '1'
               Configuration:
-                BucketName: !Ref ProductionBucket
+                BucketName: !Ref ProductionBucketName
                 Extract: true
               InputArtifacts:
                 - Name: BuildOutput

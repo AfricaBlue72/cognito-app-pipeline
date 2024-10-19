@@ -6,10 +6,11 @@ TEMPLATE_FILE = pipeline.yaml
 REGION = us-west-1  # Change this to your preferred region
 
 # Parameters (these should be passed as environment variables or command-line arguments)
-GITHUB_OWNER ?= your-github-username
-GITHUB_REPO ?= your-repo-name
+GITHUB_OWNER ?= AfricaBlue72
+GITHUB_REPO ?= cognito-app
 GITHUB_BRANCH ?= main
-PRODUCTION_ACCOUNT_ID ?= your-production-account-id
+PRODUCTION_ACCOUNT_ID ?= 288761731516
+PRODUCTION_BUCKET_NAME ?= your-production-bucket-name  # Replace with your actual production bucket name
 GITHUB_SECRET_NAME = Github/cognito-app/PAT
 
 # Deploy the stack
@@ -25,7 +26,8 @@ deploy:
 			GitHubRepo=$(GITHUB_REPO) \
 			GitHubBranch=$(GITHUB_BRANCH) \
 			GitHubToken=$(GITHUB_TOKEN) \
-			ProductionAccountId=$(PRODUCTION_ACCOUNT_ID)
+			ProductionAccountId=$(PRODUCTION_ACCOUNT_ID) \
+			ProductionBucketName=$(PRODUCTION_BUCKET_NAME)
 
 # Update the stack
 update: deploy
