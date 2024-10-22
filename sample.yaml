@@ -1,0 +1,639 @@
+# HCMSO
+
+Description: Exporting the necessary things for other stacks to import and build upon
+
+###
+### Notice we import a lot of Stack Exports:
+### - 4 accounts
+### - 2 roles
+###
+Parameters:
+# Pipeline params
+  PipelineName:
+    Description: "HC FloorMaster Pipeline"
+    Type: String
+    Default: "HCWebsitesPipelineFloorMaster"
+  PipelinePrefixName:
+    Description: "Artifacts prefix name for lifecycle. Can only be 20 chars"
+    Type: String
+    Default: "HCWebsitesPipeline"  # is prefix in its own bucket so ok
+  ArtifactsBucketName: 
+    Type: "String"
+    Default: "hcwebsitespipelinefloormaster-artifacts"
+  RepositoryName: 
+    Type: "String"
+    Default: "HCWebsitesFloorMaster"
+  RepositoryBranch: 
+    Type: "String"
+    Default: "master"
+  ApprovalEmail:
+    Type: String
+    Default: "marcel@easytocloud.com"
+  CodeBuildImage:
+    Type: String
+    Default: "aws/codebuild/amazonlinux2-x86_64-standard:2.0"
+  TimeoutInMinutes:
+    Type: String
+    Default: "30"
+
+
+Resources:
+# KMS Key to be used by the 'ArtifactsBucket'
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Used by Assumed Roles in Dev/Test/Prod accounts to Encrypt/Decrypt code
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows admin of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:Create*"
+              - "kms:Describe*"
+              - "kms:Enable*"
+              - "kms:List*"
+              - "kms:Put*"
+              - "kms:Update*"
+              - "kms:Revoke*"
+              - "kms:Disable*"
+              - "kms:Get*"
+              - "kms:Delete*"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:CancelKeyDeletion"
+            Resource: "*"
+          -
+            Sid: Allow use of the key for CodePipeline components
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub "arn:aws:iam::${AWS::AccountId}:root"
+                - !Join [":", [ "arn:aws:iam:", !ImportValue "DevelopmentAccountId", "root" ]]
+# XXX
+#               - !Sub "arn:aws:iam::${DevelopmentAccountId}:role/${DeveloperRoleName}"
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+  KMSAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/codepipeline-crossaccounts-${PipelineName}"
+      TargetKeyId: !Ref KMSKey
+
+# Pipeline bucket available across all (dev/test/accept/prod) accounts
+  ArtifactsBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref "ArtifactsBucketName"
+      LifecycleConfiguration:
+        Rules:
+          - Id: AutoDelete
+            Status: Enabled
+            ExpirationInDays: '90'
+            Prefix: !Ref PipelinePrefixName
+
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Statement:
+          -
+            Action:
+              - s3:*
+            Effect: Allow
+            Resource:
+              - !Sub "arn:aws:s3:::${ArtifactsBucket}"
+              - !Sub "arn:aws:s3:::${ArtifactsBucket}/*"
+            Principal:
+              AWS:
+                - !Join [ "", [ "arn:aws:iam::", !ImportValue "DevelopmentAccountId", ":role/", !ImportValue "DeveloperRoleName" ]]
+
+  BuildInDevelopment:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "BuildInDevelopment" ]]
+      Description: "Build in Development"
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+#     ServiceRole: !Ref CodeBuildRole
+# Cannot go cross-account here -- simply not allowed
+#      ServiceRole: !Sub "arn:aws:iam::${DevelopmentAccountId}:role/${DeveloperRoleName}"
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: RepositoryName
+          Value: !Ref "RepositoryName"
+        - Name: TargetAccountId
+          Value: !ImportValue "DevelopmentAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeveloperRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/build/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+  DeployInDevelopment:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "DeployInDevelopment" ]]
+      Description: "Deploy In Development"
+      #ServiceRole: !GetAtt CodeBuildRole.Arn
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "DevelopmentAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/deploy/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+
+  DeployInTest:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "DeployInTest" ]]
+      Description: "Deploy in Test"
+      #ServiceRole: !GetAtt CodeBuildRole.Arn
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "TestAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/deploy/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+      Tags:
+        - Key: Key1
+          Value: Value1
+        - Key: Key2
+          Value: Value2
+
+  DeployInAccept:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "DeployInAccept" ]]
+      Description: "Deploy in Accept"
+      #ServiceRole: !GetAtt CodeBuildRole.Arn
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "AcceptAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/deploy/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+  DeployInProduction:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "DeployInProduction" ]]
+      Description: "Deploy Project in Production"
+      #ServiceRole: !GetAtt CodeBuildRole.Arn
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "ProductionAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/deploy/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+  UnitTestsInDevelopment:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "UnitTestsInDevelopment" ]]
+      Description: "Run Unit Tests in Development"
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+#     BadgeEnabled: true
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "DevelopmentAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeveloperRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/unit-tests/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+      Tags:
+        - Key: Key1
+          Value: Value2
+        - Key: Key2
+          Value: Value2
+
+  IntegrationTestsInDevelopment:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "IntegrationTestsInDevelopment" ]]
+      Description: "Run Integration Tests in Development"
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+#     BadgeEnabled: true
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "DevelopmentAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/integration-tests/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+  IntegrationTestsInTest:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "IntegrationTestsInTest" ]]
+      Description: "Run Integration Tests in Test"
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+#     BadgeEnabled: true
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "TestAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/integration-tests/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+  IntegrationTestsInAccept:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "IntegrationTestsInAccept" ]]
+      Description: "Run Integration Tests in Accept"
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+#     BadgeEnabled: true
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "AcceptAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/integration-tests/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+
+  CopyProductionArtifacts:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "-", [ !Ref "PipelineName", "CopyProductionArtifacts" ]]
+      Description: "Copy Production Artifacts"
+      #ServiceRole: !GetAtt CodeBuildRole.Arn
+      ServiceRole: !ImportValue "CodeBuildRoleArn"
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref "CodeBuildImage"
+        EnvironmentVariables:
+        - Name: TargetAccountId
+          Value: !ImportValue "PipelineAccountId"
+        - Name: TargetRoleName
+          Value: !ImportValue "DeployerRoleName"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "cicd/copy-artifacts/buildspec.yaml"
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+      
+      
+# For Manual Approval Stage:
+  ApprovalTopic:
+    Type: "AWS::SNS::Topic"
+    Properties: 
+      DisplayName: "ApprovalTopic"
+      Subscription:
+      - Endpoint: !Ref "ApprovalEmail"
+        Protocol: "email"
+      TopicName: !Join [ "-", [ !Ref "PipelineName", "ApprovalTopic" ]]
+      Tags:
+      - Key: 'hc:security-exception:plaintext'
+        Value: 'true'
+      - Key: 'hc:security-exception:no_logging'
+        Value: 'true'
+###
+### PIPELINE
+###
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+#    DependsOn: CodePipelineRolePolicy # 1st stage may fail if policy is not yet complete
+    Properties:
+      Name: !Ref "PipelineName"
+      ArtifactStore:
+        Location: !Ref "ArtifactsBucketName"
+        Type: S3
+        EncryptionKey: 
+          Id: !GetAtt KMSKey.Arn
+          Type: "KMS"
+      DisableInboundStageTransitions: []
+      RoleArn: !ImportValue "CodePipelineRoleArn"
+      Stages:
+###
+### SOURCE is CodeCommit in development account
+###
+      - Name: !Join ["-", ["SOURCE", !ImportValue "DevelopmentAccountId", "Branch", !Ref "RepositoryBranch" ]]
+        Actions:
+        - Name: !Ref "RepositoryName" 
+          RunOrder: 1
+          InputArtifacts: []
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: '1'
+            Provider: CodeCommit
+          Configuration:
+            BranchName: !Ref "RepositoryBranch"
+            RepositoryName: !Ref "RepositoryName"
+          OutputArtifacts:
+          - Name: "SourceArtifacts"
+# Repo in Dev:
+          RoleArn: !Join ["", ["arn:aws:iam::", !ImportValue "DevelopmentAccountId", ":role/", !ImportValue "DeveloperRoleName" ]]
+###
+### DEVELOPMENT: Build
+###
+      - Name: !Join ["-", ["DEVELOPMENT", !ImportValue "DevelopmentAccountId" ]]
+        Actions:
+        - Name: "BuildInDevelopment"
+          RunOrder: 1
+          Configuration:
+            ProjectName: !Ref "BuildInDevelopment"
+          InputArtifacts:
+          - Name: "SourceArtifacts"
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "BuildArtifacts"
+# Do not cross account here -> the project will be searched for in the new account and thus won't be found :(
+#          RoleArn: !Join ["", ["arn:aws:iam::", !Ref "DevelopmentAccountId", ":role/", !Ref "DeveloperRoleName" ]]
+### Development Unit Test
+        - Name: "Unit-Tests-in-Development"
+          RunOrder: 2
+          Configuration:
+            ProjectName: !Ref "UnitTestsInDevelopment"
+          InputArtifacts:
+          - Name: "BuildArtifacts"
+          ActionTypeId:
+            Category: Test
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "SCUnitTestsInDevelopment"
+# Do not cross account here -> the project will be searched for in the new account and thus won't be found :(
+#          RoleArn: "arn:aws:iam::057014130440:role/CICD-Tester"
+### Development Deploy
+        - Name: "DeployInDevelopment"
+          RunOrder: 3
+          Configuration:
+            ProjectName: !Ref "DeployInDevelopment"
+          InputArtifacts:
+          - Name: "BuildArtifacts"
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "DeployInDevelopmentArtifacts"
+### Development: Integration Tests
+        - Name: "SC-Integration-Tests-In-Development"
+          RunOrder: 4
+          Configuration:
+            ProjectName: !Ref "IntegrationTestsInDevelopment"
+          InputArtifacts:
+          - Name: "DeployInDevelopmentArtifacts"
+          ActionTypeId:
+            Category: Test
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "IntegrationTestsInDevelopmentArtifacts"
+# Do Not Cross Account here - Pipeline will fail
+#          RoleArn: !Join [ "", [ "arn:aws:iam::", !Ref "DevelopmentAccountId", ":role/", !Ref "DeveloperRoleName" ]]
+#
+### 
+### STAGE: RELEASE TO TEST
+###
+#@      - Name: !Join ["-", ["Release-to-TEST", !Ref "DevelopmentAccountId" ]]
+#@        Actions:
+#@        - Name: "Release-To-Test"
+#@          RunOrder: 1
+#@          InputArtifacts: []
+#@          ActionTypeId:
+#@            Category: Approval
+#@            Owner: AWS
+#@            Version: '1'
+#@            Provider: Manual
+#@          OutputArtifacts: []
+#@          Configuration:
+#@            NotificationArn: !Ref "ApprovalTopic"
+#@            ExternalEntityLink: "https://easytocloud.com"
+#@            CustomData: "Please approve so we can release to TEST"
+###
+### STAGE: TEST
+###
+      - Name: !Join [ "-", [ "TEST", !ImportValue "TestAccountId" ]]
+        Actions:
+### TEST: Deploy
+        - Name: "DeployInTest"
+          RunOrder: 1
+          Configuration:
+            ProjectName: !Ref "DeployInTest"
+          InputArtifacts:
+          - Name: "BuildArtifacts"
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "DeployInTestArtifacts"
+### TEST: Integration Tests
+        - Name: "Integration-Tests-in-Tests"
+          RunOrder: 2
+          Configuration:
+            ProjectName: !Ref "IntegrationTestsInTest"
+          InputArtifacts:
+          - Name: "DeployInTestArtifacts"
+          ActionTypeId:
+            Category: Test
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "IntegrationTestsInTestArtifacts"
+###
+### STAGE: RELEASE TO ACCEPT
+###
+#@      - Name: !Join ["-", ["Release-to-ACCEPT", !Ref "AcceptAccountId" ]]
+#@        Actions:
+#@        - Name: "ReleaseToAccept"
+#@          RunOrder: 1
+#@          InputArtifacts: []
+#@          ActionTypeId:
+#@            Category: Approval
+#@            Owner: AWS
+#@            Version: '1'
+#@            Provider: Manual
+#@          OutputArtifacts: []
+#@          Configuration:
+#@            NotificationArn: !Ref "ApprovalTopic"
+#@            ExternalEntityLink: "https://easytocloud.com"
+#@            CustomData: "Please approve so we can release to ACCEPT"
+###
+### STAGE: ACCEPT
+###
+      - Name: !Join [ "-", ["ACCEPT", !ImportValue "AcceptAccountId" ]]
+        Actions:
+### ACCEPT: Deploy
+        - Name: "DeployInAccept"
+          RunOrder: 1
+          Configuration:
+            ProjectName: !Ref "DeployInAccept"
+          InputArtifacts:
+          - Name: "BuildArtifacts"
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "DeployInAcceptArtifacts"
+### ACCEPT: Integration Tests
+        - Name: "Integration-Tests"
+          RunOrder: 2
+          Configuration:
+            ProjectName: !Ref "IntegrationTestsInAccept"
+          InputArtifacts:
+          - Name: "DeployInAcceptArtifacts"
+          ActionTypeId:
+            Category: Test
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "IntegrationTestsInAcceptArtifacts"
+###
+### STAGE: RELEASE TO PROD MANUAL APPROVAL 
+###
+      - Name: !Join ["-", ["Release-to-Prod", !ImportValue "ProductionAccountId" ]]
+        Actions:
+        - Name: "ReleaseToProd"
+          RunOrder: 1
+          InputArtifacts: []
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Version: '1'
+            Provider: Manual
+          OutputArtifacts: []
+          Configuration:
+            NotificationArn: !Ref "ApprovalTopic"
+            ExternalEntityLink: "https://easytocloud.com"
+            CustomData: "Please approve so we can release to PRODUCTION"
+###
+### STAGE: PRODUCTION
+###
+      - Name: !Join [ "-", ["PRODUCTION", !ImportValue "ProductionAccountId" ]]
+        Actions:
+### Production: Deploy
+        - Name: "DeployInProduction"
+          RunOrder: 2
+          Configuration:
+            ProjectName: !Ref "DeployInProduction"
+          InputArtifacts:
+          - Name: "BuildArtifacts"
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "DeployInProductionArtifacts"
+
+### Production: Copy Production Artifacts
+        - Name: "CopyProductionArtifacts"
+          RunOrder: 3
+          Configuration:
+            ProjectName: !Ref "CopyProductionArtifacts"
+          InputArtifacts:
+          - Name: "BuildArtifacts"
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: "CopyArtifacts"

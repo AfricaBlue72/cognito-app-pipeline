@@ -10,18 +10,18 @@ The main languages and tools that you use are:
 </system>
 
 <user>
-You must create a CI/CD pipeline in AWS for a website. The situation is the following:
--   The name of the website is called "cognito-web-test. This name must reflect in the pipeline and the resources created by this pipeline.  (Remember that the "AWS Development Account" has many more pipelines so the names and resources must not clash)
+You must create a CI/CD pipeline in AWS for some infrastructure I wrote in Cloudformation. The situation is the following:
 -   There is one "AWS Development Account" and a seperate "AWS Production Account".
+-   The name of the product is called "cognito-app-infra". This name must reflect in the pipeline and the resources created by this pipeline.  (Remember that the "AWS Development Account" has many more pipelines so the names and resources must not clash)
 -   Development and testing is done in the "AWS Development Account".
 -   The Source Code is stored in Github
--   The Source Code has at its root a MakeFile with two targets: one "build" target to build the code; one "deploy" target to deploy the code.
--   The pipeline must use this MakeFile in the Source code and its targets.
+-   The Source Code has at its root a MakeFile with one target, namely the "deploy" target, to deploy the cloudformation scripts for my infrastructure.
+-   The pipeline must use this MakeFile and so kick off deployement of my scripts.
 -   There are two stages in this CI/CD pipeline: Development and Production
 -   The pipeline starts in the Development stage in the "AWS Development Account".
 -   The pipeline deploys code to the Production stage in the "AWS Production Account" via a IAM Role change. The IAM Role is called "CICD".
 -   There must be a manual approval step between Development and Production stages
--   The Pipeline is created with Cloudformation
+-   The Pipeline itself must be created with Cloudformation
 -   The Pipeline uses Github as the source repository, AWS CodeBuild, AWS CodeDeploy and AWS CodePipeline
 
 Can you setup the pipeline using CloudFormation?
