@@ -40,11 +40,11 @@ Resources:
         Type: LINUX_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildImage
-      EnvironmentVariables:
-        - Name: TargetAccountId
-          Value: !Ref AcceptAccountId
-        - Name: TargetRoleName
-          Value: !Ref DeployerRoleName
+        EnvironmentVariables:
+          - Name: TargetAccountId
+            Value: !Ref AcceptAccountId
+          - Name: TargetRoleName
+            Value: !Ref DeployerRoleName
       Source:
         Type: CODEPIPELINE
         BuildSpec: backend/cicd/deploy/buildspec.yaml
@@ -60,11 +60,11 @@ Resources:
         Type: LINUX_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildImage
-      EnvironmentVariables:
-        - Name: TargetAccountId
-          Value: !Ref ProductionAccountId
-        - Name: TargetRoleName
-          Value: !Ref DeployerRoleName
+        EnvironmentVariables:
+          - Name: TargetAccountId
+            Value: !Ref ProductionAccountId
+          - Name: TargetRoleName
+            Value: !Ref DeployerRoleName
       Source:
         Type: CODEPIPELINE
         BuildSpec: backend/cicd/deploy/buildspec.yaml
@@ -147,6 +147,16 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AWSCodeBuildAdminAccess
       Policies:
+        - PolicyName: AssumeRolesInTargetAccounts
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: 
+                  - !Sub arn:aws:iam::${AcceptAccountId}:role/{DeployerRoleName}
+                  - !Sub arn:aws:iam::${ProductionAccountId}:role/{DeployerRoleName}
         - PolicyName: CloudWatchLogsAccess
           PolicyDocument:
             Version: '2012-10-17'

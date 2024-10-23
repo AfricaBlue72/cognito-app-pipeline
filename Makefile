@@ -13,7 +13,7 @@ GITHUB_CONNECTION_ARN = arn:aws:codeconnections:eu-west-1:970547379959:connectio
 ACCEPT_ACCOUNT_ID = 970547379959  # Replace with your actual Accept account ID
 PRODUCTION_ACCOUNT_ID = 288761731516
 DEPLOYER_ROLE_NAME = CICDForCognitoAppInfra  # Replace with your actual deployer role name
-CODEBUILD_IMAGE = aws/codebuild/amazonlinux2-x86_64-standard:5.0  # Replace with your preferred CodeBuild image
+CODEBUILD_IMAGE = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"  # Replace with your preferred CodeBuild image
 
 .PHONY: deploy
 
